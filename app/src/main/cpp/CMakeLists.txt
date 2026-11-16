@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(loadstore CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(loadstore SHARED native.cpp)
+target_link_libraries(loadstore vulkan log)
