@@ -12,16 +12,17 @@ public class MainActivity extends Activity {
 
     native String nativeInfo();
     native String nativeLastError();
-    native double[] nativeRun(int load, int store, int fmt, int samples, int res, int iters, double seconds);
+    native double[] nativeRun(int load, int store, int fmt, int samples, int res, int iters, int draws, double seconds);
 
     static final String[] LOAD = {"LOAD", "CLEAR", "DONT_CARE", "NONE"};
-    static final String[] STORE = {"STORE", "DONT_CARE", "NONE"};
+    static final String[] STORE = {"STORE", "DONT_CARE", "NONE", "RESOLVE", "RESOLVE_QCOM"};
+    static final String[] DRAWS = {"1", "2", "4", "8", "16"};
     static final String[] FMT = {"RGBA8", "RGBA16F", "RGBA32F"};
     static final String[] SAMP = {"1x", "2x", "4x"};
     static final String[] RES = {"1280x720", "1920x1080", "2560x1440", "3840x2160"};
     static final int[] SWEEP = {0, 25, 50, 100, 200, 400, 800, 1600, 3200, 6400};
 
-    Spinner sLoad, sStore, sFmt, sSamp, sRes;
+    Spinner sLoad, sStore, sFmt, sSamp, sRes, sDraws;
     EditText eIters;
     TextView out;
     Button[] buttons;
@@ -59,6 +60,7 @@ public class MainActivity extends Activity {
         sFmt = spin(root, "Format", FMT, 0);
         sSamp = spin(root, "MSAA", SAMP, 0);
         sRes = spin(root, "Resolution", RES, 1);
+        sDraws = spin(root, "Draws per pass", DRAWS, 0);
 
         LinearLayout row = new LinearLayout(this);
         TextView t = new TextView(this);
@@ -96,8 +98,8 @@ public class MainActivity extends Activity {
     void ui(String s) { runOnUiThread(() -> out.append(s)); }
 
     // returns ms/pass, or -1 on error (error text appended)
-    double run(int l, int s, int f, int m, int r, int it, StringBuilder note) {
-        double[] a = nativeRun(l, s, f, m, r, it, 1.0);
+    double run(int l, int s, int f, int m, int r, int it, int dr, StringBuilder note) {
+        double[] a = nativeRun(l, s, f, m, r, it, dr, 1.0);
         if (a == null) { note.append("ERR: ").append(nativeLastError()); return -1; }
         note.append(String.format("(%d passes/submit, %.0f MB color)", (int) a[1], a[2]));
         return a[0];
@@ -107,27 +109,28 @@ public class MainActivity extends Activity {
         if (busy) return;
         final int l = sLoad.getSelectedItemPosition(), s = sStore.getSelectedItemPosition(),
                 f = sFmt.getSelectedItemPosition(), m = sSamp.getSelectedItemPosition(),
-                r = sRes.getSelectedItemPosition();
+                r = sRes.getSelectedItemPosition(),
+                dr = Integer.parseInt(DRAWS[sDraws.getSelectedItemPosition()]);
         int itTmp = 1000;
         try { itTmp = Integer.parseInt(eIters.getText().toString().trim()); } catch (Exception e) {}
         final int it = Math.max(0, itTmp);
         busy = true;
         for (Button x : buttons) x.setEnabled(false);
         new Thread(() -> {
-            String cfg = String.format("%s %s %s %s", FMT[f], SAMP[m], RES[r], "");
+            String cfg = String.format("%s %s %s %sdraws", FMT[f], SAMP[m], RES[r], dr);
             try {
                 if (mode == 0) {
                     ui(String.format("== %s/%s  %s  iters=%d\n", LOAD[l], STORE[s], cfg.trim(), it));
                     StringBuilder n = new StringBuilder();
-                    double ms = run(l, s, f, m, r, it, n);
+                    double ms = run(l, s, f, m, r, it, dr, n);
                     ui(ms < 0 ? n + "\n\n" : String.format("%.4f ms/pass  %s\n\n", ms, n));
                 } else if (mode == 1) {
                     ui(String.format("== ALU sweep  %s  chosen=%s/%s  baseline=DONT_CARE/DONT_CARE\n", cfg.trim(), LOAD[l], STORE[s]));
                     ui(String.format("%6s %10s %10s %10s\n", "iters", "chosen", "baseline", "delta"));
                     for (int a : SWEEP) {
                         StringBuilder n1 = new StringBuilder(), n2 = new StringBuilder();
-                        double c = run(l, s, f, m, r, a, n1);
-                        double base = run(2, 1, f, m, r, a, n2);
+                        double c = run(l, s, f, m, r, a, dr, n1);
+                        double base = run(2, 1, f, m, r, a, dr, n2);
                         if (c < 0 || base < 0) { ui(a + ": " + (c < 0 ? n1 : n2) + "\n"); continue; }
                         ui(String.format("%6d %10.4f %10.4f %+10.4f\n", a, c, base, c - base));
                     }
@@ -137,7 +140,7 @@ public class MainActivity extends Activity {
                     for (int li = 0; li < LOAD.length; li++)
                         for (int si = 0; si < STORE.length; si++) {
                             StringBuilder n = new StringBuilder();
-                            double ms = run(li, si, f, m, r, it, n);
+                            double ms = run(li, si, f, m, r, it, dr, n);
                             ui(ms < 0 ? String.format("%-9s %-9s %s\n", LOAD[li], STORE[si], n)
                                       : String.format("%-9s %-9s %9.4f ms\n", LOAD[li], STORE[si], ms));
                         }
